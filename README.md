@@ -1,36 +1,45 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Chat with your PDF
 
-## Getting Started
+Upload a PDF, then ask questions about it. Answers come only from the document — the model says "That's not in the document." when it can't find the answer.
 
-First, run the development server:
+## Stack
+
+- Next.js 16 (App Router) + TypeScript + Tailwind 4
+- `pdf-parse` for server-side text extraction
+- `openai` SDK for both chat and embeddings
+- `idb` for storing chunks + embeddings in the browser
+
+## How it works
+
+1. **Upload** — PDF goes to `/api/extract`, gets chunked (~800 chars, 100 char overlap), each chunk is embedded, and the result is stored in your browser's IndexedDB.
+2. **Ask** — Your question is embedded via `/api/embed`. The browser does a cosine-similarity top-5 lookup locally and sends the top chunks plus your question to `/api/chat`.
+3. **Answer** — The model receives a strict grounded prompt. If the answer isn't in the provided excerpts, it replies exactly: *"That's not in the document."*
+
+## Local dev
 
 ```bash
+npm install
+cp .env.example .env.local
+# fill in your keys
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Environment variables
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+| Var | Purpose |
+|---|---|
+| `OPENAI_API_KEY` | Chat provider key |
+| `OPENAI_BASE_URL` | Chat provider base URL (leave blank for OpenAI default) |
+| `OPENAI_MODEL` | Chat model name |
+| `EMBED_API_KEY` | Embedding provider key (can be a different provider) |
+| `EMBED_BASE_URL` | Embedding provider base URL (OpenAI-compatible `/v1/embeddings`) |
+| `EMBED_MODEL` | Embedding model name |
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Deploy
 
-## Learn More
+Push to GitHub, import the repo in Vercel, add the env vars above, deploy.
 
-To learn more about Next.js, take a look at the following resources:
+## Limits
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- 4.5 MB PDF upload (Vercel serverless request body limit)
+- The same embedding model is used at upload and query time (enforced by env var)
