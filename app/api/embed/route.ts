@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { embedOne } from "@/lib/embeddings";
 
 export const runtime = "nodejs";
+export const maxDuration = 15;
 
 export async function POST(request: Request) {
   try {

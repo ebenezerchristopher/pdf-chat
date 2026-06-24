@@ -17,8 +17,8 @@ export function chunkText(
   text: string,
   opts: { size?: number; overlap?: number } = {}
 ): string[] {
-  const size = opts.size ?? 800;
-  const overlap = opts.overlap ?? 100;
+  const size = opts.size ?? 1500;
+  const overlap = opts.overlap ?? 150;
   const clean = text.replace(/\s+/g, " ").trim();
   if (!clean) return [];
   if (clean.length <= size) return [clean];

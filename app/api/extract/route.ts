@@ -3,7 +3,7 @@ import { chunkText, extractPdfText } from "@/lib/pdf";
 import { embedTexts } from "@/lib/embeddings";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 45;
 
 const MAX_BYTES = 4.5 * 1024 * 1024;
 

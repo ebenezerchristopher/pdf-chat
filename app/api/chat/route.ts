@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
-import { askGrounded, type ChatTurn } from "@/lib/llm";
+import { streamGrounded, type ChatTurn } from "@/lib/llm";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 30;
+export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   try {
@@ -23,9 +24,7 @@ export async function POST(request: Request) {
               typeof t === "object" &&
               t !== null &&
               "role" in t &&
-              "content" in t &&
-              (t as { role: unknown }).role !== undefined &&
-              (t as { content: unknown }).content !== undefined
+              "content" in t
           )
           .slice(-6)
       : [];
@@ -34,8 +33,14 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Missing 'question'" }, { status: 400 });
     }
 
-    const answer = await askGrounded(question, excerpts, history);
-    return NextResponse.json({ answer });
+    const stream = await streamGrounded(question, excerpts, history);
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+      },
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });

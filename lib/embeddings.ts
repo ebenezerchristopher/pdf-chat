@@ -96,44 +96,69 @@ function parseEmbeddingResponse(raw: unknown): number[][] {
   throw new Error("Embedding response is not an object or array");
 }
 
-export async function embedTexts(texts: string[]): Promise<number[][]> {
+export async function embedTexts(
+  texts: string[],
+  opts: { concurrency?: number; batchSize?: number } = {}
+): Promise<number[][]> {
   const apiKey = requireEnv("EMBED_API_KEY");
   const baseURL = process.env.EMBED_BASE_URL || "https://api.openai.com/v1";
   const model = getEmbedModel();
   const url = joinUrl(baseURL, "/embeddings");
 
-  const vectors: number[][] = [];
-  const batchSize = 64;
+  const batchSize = opts.batchSize ?? 32;
+  const concurrency = Math.max(1, Math.min(opts.concurrency ?? 4, 8));
+
+  if (texts.length === 0) return [];
+
+  const batches: string[][] = [];
   for (let i = 0; i < texts.length; i += batchSize) {
-    const batch = texts.slice(i, i + batchSize);
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({ model, input: batch }),
-    });
-
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new Error(
-        `Embedding API ${res.status}: ${text.slice(0, 300) || res.statusText}`
-      );
-    }
-
-    const raw = await res.json();
-    const batchVectors = parseEmbeddingResponse(raw);
-
-    if (batchVectors.length !== batch.length) {
-      throw new Error(
-        `Embedding count mismatch: sent ${batch.length}, got ${batchVectors.length}`
-      );
-    }
-
-    vectors.push(...batchVectors);
+    batches.push(texts.slice(i, i + batchSize));
   }
-  return vectors;
+
+  const results: number[][] = new Array(texts.length);
+  let nextBatch = 0;
+
+  async function worker(): Promise<void> {
+    while (true) {
+      const idx = nextBatch++;
+      if (idx >= batches.length) return;
+      const batch = batches[idx];
+      const startIdx = idx * batchSize;
+
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({ model, input: batch }),
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(
+          `Embedding API ${res.status}: ${text.slice(0, 300) || res.statusText}`
+        );
+      }
+
+      const raw = await res.json();
+      const batchVectors = parseEmbeddingResponse(raw);
+
+      if (batchVectors.length !== batch.length) {
+        throw new Error(
+          `Embedding count mismatch: sent ${batch.length}, got ${batchVectors.length}`
+        );
+      }
+
+      for (let i = 0; i < batchVectors.length; i++) {
+        results[startIdx + i] = batchVectors[i];
+      }
+    }
+  }
+
+  const workerCount = Math.min(concurrency, batches.length);
+  await Promise.all(Array.from({ length: workerCount }, worker));
+  return results;
 }
 
 export async function embedOne(text: string): Promise<number[]> {

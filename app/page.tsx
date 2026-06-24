@@ -159,8 +159,63 @@ export default function Home() {
         };
         throw new Error(detail.error || `Chat failed (${chatRes.status})`);
       }
-      const { answer } = (await chatRes.json()) as { answer: string };
-      setMessages([...nextMessages, { role: "assistant", content: answer }]);
+      if (!chatRes.body) {
+        throw new Error("Chat response had no body");
+      }
+
+      const working: Message[] = [
+        ...nextMessages,
+        { role: "assistant", content: "" },
+      ];
+      setMessages(working);
+
+      const reader = chatRes.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let fullAnswer = "";
+      let streamError: string | null = null;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed.startsWith("data:")) continue;
+          const payload = trimmed.slice(5).trim();
+          if (payload === "[DONE]") continue;
+          try {
+            const parsed = JSON.parse(payload) as {
+              delta?: string;
+              error?: string;
+            };
+            if (parsed.error) {
+              streamError = parsed.error;
+            } else if (parsed.delta) {
+              fullAnswer += parsed.delta;
+              working[working.length - 1] = {
+                role: "assistant",
+                content: fullAnswer,
+              };
+              setMessages([...working]);
+            }
+          } catch {
+            // ignore malformed line
+          }
+        }
+      }
+
+      if (streamError) {
+        setAskError(streamError);
+        setMessages(nextMessages);
+      } else if (!fullAnswer) {
+        setMessages([
+          ...nextMessages,
+          { role: "assistant", content: "That's not in the document." },
+        ]);
+      }
     } catch (err) {
       setAskError(err instanceof Error ? err.message : "Request failed");
     } finally {
