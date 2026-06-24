@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
-import { chunkText, extractPdfText } from "@/lib/pdf";
-import { embedTexts } from "@/lib/embeddings";
+import { chunkText, extractPdfPagesStream } from "@/lib/pdf";
+import { embedStream } from "@/lib/embeddings";
 
 export const runtime = "nodejs";
 export const maxDuration = 45;
+export const dynamic = "force-dynamic";
 
 const MAX_BYTES = 4.5 * 1024 * 1024;
 
@@ -36,25 +37,36 @@ export async function POST(request: Request) {
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    const { text, pageCount } = await extractPdfText(buffer);
+    // Pipeline: as soon as a page's text is parsed, chunk it and hand the
+    // chunks to the embed worker pool. The workers embed in parallel while
+    // the producer keeps extracting later pages.
+    let pageCount = 0;
+    async function* chunkSource(): AsyncGenerator<string[]> {
+      for await (const pageText of extractPdfPagesStream(buffer)) {
+        pageCount++;
+        const chunks = chunkText(pageText);
+        if (chunks.length > 0) yield chunks;
+      }
+    }
 
-    if (!text.trim()) {
+    const { chunks, embeddings } = await embedStream(chunkSource(), {
+      concurrency: 4,
+      batchSize: 32,
+    });
+
+    if (pageCount === 0) {
+      return NextResponse.json(
+        { error: "PDF has no pages" },
+        { status: 422 }
+      );
+    }
+
+    if (chunks.length === 0) {
       return NextResponse.json(
         { error: "Could not extract any text from the PDF (scanned PDF?)" },
         { status: 422 }
       );
     }
-
-    const chunks = chunkText(text);
-
-    if (chunks.length === 0) {
-      return NextResponse.json(
-        { error: "PDF text was empty after chunking" },
-        { status: 422 }
-      );
-    }
-
-    const embeddings = await embedTexts(chunks);
 
     return NextResponse.json({
       name: file.name,
