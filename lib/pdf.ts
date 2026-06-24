@@ -1,4 +1,4 @@
-import { PDFParse } from "pdf-parse";
+import { extractText } from "unpdf";
 
 export type ExtractedPdf = {
   text: string;
@@ -6,16 +6,11 @@ export type ExtractedPdf = {
 };
 
 export async function extractPdfText(buffer: Buffer): Promise<ExtractedPdf> {
-  const parser = new PDFParse({ data: new Uint8Array(buffer) });
-  try {
-    const result = await parser.getText();
-    return {
-      text: result.text ?? "",
-      pageCount: result.total ?? result.pages?.length ?? 0,
-    };
-  } finally {
-    await parser.destroy();
-  }
+  const result = await extractText(new Uint8Array(buffer), { mergePages: true });
+  return {
+    text: result.text ?? "",
+    pageCount: result.totalPages ?? 0,
+  };
 }
 
 export function chunkText(
